@@ -334,5 +334,47 @@
       renderCloze();
     });
   </script>
+  <!-- Firebase Integration -->
+  <script type="module">
+    // Import Firebase SDK modules
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
+    import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+
+    // Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyAsSuLmWKYEqH2NYdfB4G4bVv4IVfIgz1M",
+      authDomain: "abbeygamebackend.firebaseapp.com",
+      projectId: "abbeygamebackend",
+      storageBucket: "abbeygamebackend.firebasestorage.app",
+      messagingSenderId: "635113946883",
+      appId: "1:635113946883:web:93704f424274e656d57336"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+
+    // Initialize Firestore and expose globally
+    const db = getFirestore(app);
+    window.db = db; // allows other scripts to use "db"
+
+    // Test write to Firestore
+    async function testWrite() {
+      try {
+        const docRef = await addDoc(collection(db, "testCollection"), {
+          message: "Hello Firebase!",
+          timestamp: new Date().toISOString()
+        });
+        console.log("Document written with ID:", docRef.id);
+      } catch (e) {
+        console.error("Error adding document:", e);
+      }
+    }
+
+    // Run test write on page load
+    testWrite();
+  </script>
 </body>
 </html>
+</body>
+</html>
+
