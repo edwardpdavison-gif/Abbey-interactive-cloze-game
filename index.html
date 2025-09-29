@@ -15,80 +15,29 @@
       width: 70%;
       max-width: 1200px;
       min-height: 100px;
-      max-height: 50vh;           /* dynamic height up to 50% of viewport */
+      max-height: 50vh;
       border: 1px solid #ccc;
       padding: 10px;
       overflow: auto;
       margin-top: 20px;
     }
 
-    /* Gapped text styling */
-    .output {
-      display: block;
-      white-space: normal;
-      overflow-wrap: break-word;
-      font-family: "Consolas", monospace;
-      font-size: 12px;           /* small font */
-      line-height: 1.8;
-    }
-
-    .word {
-      display: inline-block;
-      margin-right: 6px;
-      letter-spacing: 2px;
-    }
-
-    .revealed {
-      font-weight: bold;
-    }
-
+    .output { display: block; white-space: normal; overflow-wrap: break-word; font-family: "Consolas", monospace; font-size: 12px; line-height: 1.8; }
+    .word { display: inline-block; margin-right: 6px; letter-spacing: 2px; }
+    .revealed { font-weight: bold; }
     .turn { font-weight: bold; color: green; }
     #gameInfo { margin-top: 10px; font-weight: bold; }
-
     #guessInput { width: 150px; padding: 5px; font-size: 14px; display: inline-block; }
-
-    /* Flex layout for game controls */
-    #gameControls {
-      display: flex;
-      align-items: flex-start;
-      gap: 20px;
-      margin-top: 20px;
-    }
-
-    #guessSection {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    /* Right panel: bank + scoreboard */
-    #rightPanel {
-      display: flex;
-      flex-direction: row;
-      gap: 20px;
-    }
-
-    /* Bank of failed guesses */
-    #failedBankContainer {
-      width: 300px;
-      border: 1px solid #ccc;
-      padding: 10px;
-      height: auto;
-      font-family: "Comic Sans MS", cursive, sans-serif;
-      color: red;
-      background-color: #ffe6e6;
-    }
-
-    /* Scoreboard */
-    #scores {
-      width: 150px;
-    }
+    #gameControls { display: flex; align-items: flex-start; gap: 20px; margin-top: 20px; }
+    #guessSection { display: flex; flex-direction: column; gap: 10px; }
+    #rightPanel { display: flex; flex-direction: row; gap: 20px; }
+    #failedBankContainer { width: 300px; border: 1px solid #ccc; padding: 10px; height: auto; font-family: "Comic Sans MS", cursive, sans-serif; color: red; background-color: #ffe6e6; }
+    #scores { width: 150px; }
   </style>
 </head>
 <body>
   <h1>Abbey Gap Fill Game</h1>
 
-  <!-- Setup Section -->
   <div id="setupSection">
     <div id="setupFields">
       <p>Select your subject and cohort, input your text, and choose number of players/teams.</p>
@@ -152,21 +101,17 @@
 
   <div id="gameInfo" style="display:none;"></div>
 
-  <!-- Scrollable Gapped Text Container -->
   <div id="clozeContainer">
     <div id="clozeArea" class="output"></div>
   </div>
 
-  <!-- Game Section -->
   <div id="gameSection" style="display:none;">
     <div id="gameControls">
-      <!-- Left: guess input -->
       <div id="guessSection">
         <input type="text" id="guessInput" placeholder="Enter word">
         <button onclick="guessWord()">Guess Word</button>
       </div>
 
-      <!-- Right: failed bank + scoreboard -->
       <div id="rightPanel">
         <div id="failedBankContainer">
           <h4>Bank of Failed Guesses:</h4>
@@ -177,6 +122,7 @@
     </div>
   </div>
 
+  <!-- Game logic -->
   <script>
     let wordElements = [];
     let originalText = '';
@@ -187,36 +133,26 @@
     let gameSubject = '';
     let gameCohort = '';
     let gameNumPlayers = 1;
+    let sessionId = '';
 
     function startGame() {
       const subject = document.getElementById('subject').value;
       const cohort = document.getElementById('cohort').value;
-
-      if (!subject || !cohort) {
-        alert("Please select both subject and cohort before generating text.");
-        return;
-      }
+      if (!subject || !cohort) { alert("Select subject and cohort."); return; }
 
       const numPlayers = parseInt(document.getElementById('numPlayers').value);
       players = [];
-      for (let i = 1; i <= numPlayers; i++) {
-        players.push({ name: `Player ${i}`, score: 0 });
-      }
+      for (let i=1; i<=numPlayers; i++) players.push({ name: `Player ${i}`, score:0 });
 
       gameSubject = subject;
       gameCohort = cohort;
       gameNumPlayers = numPlayers;
 
       originalText = document.getElementById('inputText').value;
-      if (!originalText.trim()) {
-        alert("Please input some text to generate.");
-        return;
-      }
+      if (!originalText.trim()) { alert("Input some text."); return; }
 
-      // Hide setup fields, keep edit button
       document.getElementById('setupFields').style.display = 'none';
       document.getElementById('editOriginalBtn').style.display = 'inline-block';
-
       document.getElementById('gameSection').style.display = 'block';
       document.getElementById('gameInfo').style.display = 'block';
       updateGameInfo();
@@ -225,6 +161,8 @@
       updateScores();
       document.getElementById('guessInput').value = '';
       document.getElementById('guessInput').focus();
+
+      createSession();
     }
 
     function updateGameInfo() {
@@ -238,42 +176,29 @@
       wordElements = [];
 
       const paragraphs = originalText.split(/\n/);
-
       paragraphs.forEach((para, pIndex) => {
         const tokens = para.match(/\w+|[^\w\s]/g) || [];
-
         tokens.forEach((token, i) => {
           if (/^\w+$/.test(token)) {
             const span = document.createElement('span');
             span.className = 'word';
             const revealed = revealedWords[token.toLowerCase()] || false;
-            if (revealed) {
-              span.textContent = token;
-              span.classList.add('revealed');
-            } else {
-              span.textContent = '_'.repeat(token.length);
-            }
+            if (revealed) { span.textContent = token; span.classList.add('revealed'); } 
+            else { span.textContent = '_'.repeat(token.length); }
             wordElements.push({ element: span, word: token, revealed: revealed });
             clozeArea.appendChild(span);
-          } else {
-            clozeArea.appendChild(document.createTextNode(token));
-          }
+          } else clozeArea.appendChild(document.createTextNode(token));
 
-          const next = tokens[i + 1];
+          const next = tokens[i+1];
           if (next) {
-            if (
-              (/^\w+$/.test(token) && /^\w+$/.test(next)) ||        
-              (/^\w+$/.test(token) && /[\(\“"']/.test(next)) ||     
-              (/[\)\.\,\!\?\:;']/.test(token) && /^\w+$/.test(next)) 
-            ) {
+            if ((/^\w+$/.test(token) && /^\w+$/.test(next)) ||
+                (/^\w+$/.test(token) && /[\(\“"']/.test(next)) ||
+                (/[\)\.\,\!\?\:;']/.test(token) && /^\w+$/.test(next))) {
               clozeArea.appendChild(document.createTextNode(' '));
             }
           }
         });
-
-        if (pIndex < paragraphs.length - 1) {
-          clozeArea.appendChild(document.createElement('br'));
-        }
+        if (pIndex < paragraphs.length -1) clozeArea.appendChild(document.createElement('br'));
       });
     }
 
@@ -293,23 +218,17 @@
         }
       });
 
-      if (found) {
-        players[currentTurn].score += 1;
-      } else {
-        if (!failedGuesses.includes(guess)) failedGuesses.push(guess);
-        updateFailedBank();
-      }
+      if (found) { players[currentTurn].score += 1; } 
+      else { if (!failedGuesses.includes(guess)) failedGuesses.push(guess); updateFailedBank(); }
 
+      logGuess(guess, found); // FIREBASE LOGGING
       updateScores();
       nextTurn();
       guessInput.value = '';
       guessInput.focus();
     }
 
-    function nextTurn() {
-      currentTurn = (currentTurn + 1) % players.length;
-      updateScores();
-    }
+    function nextTurn() { currentTurn = (currentTurn + 1) % players.length; updateScores(); }
 
     function updateScores() {
       const scoresDiv = document.getElementById('scores');
@@ -320,97 +239,72 @@
       });
     }
 
-    function updateFailedBank() {
-      const failedDiv = document.getElementById('failedWords');
-      failedDiv.textContent = failedGuesses.join(', ');
-    }
+    function updateFailedBank() { document.getElementById('failedWords').textContent = failedGuesses.join(', '); }
 
-    function editOriginalText() {
-      document.getElementById('setupFields').style.display = 'block';
-    }
+    function editOriginalText() { document.getElementById('setupFields').style.display = 'block'; }
 
-    document.getElementById('inputText').addEventListener('input', () => {
-      originalText = document.getElementById('inputText').value;
-      renderCloze();
-    });
+    document.getElementById('inputText').addEventListener('input', () => { originalText = document.getElementById('inputText').value; renderCloze(); });
+
   </script>
-  <!-- Firebase Integration -->
-  <script type="module">
-    // Import Firebase SDK modules
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-    import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
 
-    // Firebase configuration
+  <!-- FIREBASE -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
+    import { getFirestore, collection, doc, setDoc, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+
     const firebaseConfig = {
       apiKey: "AIzaSyAsSuLmWKYEqH2NYdfB4G4bVv4IVfIgz1M",
       authDomain: "abbeygamebackend.firebaseapp.com",
       projectId: "abbeygamebackend",
-      storageBucket: "abbeygamebackend.firebasestorage.app",
+      storageBucket: "abbeygamebackend.appspot.com",
       messagingSenderId: "635113946883",
       appId: "1:635113946883:web:93704f424274e656d57336"
     };
 
-    // Initialize Firebase
     const app = initializeApp(firebaseConfig);
-
-    // Initialize Firestore and expose globally
     const db = getFirestore(app);
-    window.db = db; // allows other scripts to use "db"
+    let sessionDocRef = null;
 
-    // Test write to Firestore
-    async function testWrite() {
-      try {
-        const docRef = await addDoc(collection(db, "testCollection"), {
-          message: "Hello Firebase!",
-          timestamp: new Date().toISOString()
-        });
-        console.log("Document written with ID:", docRef.id);
-      } catch (e) {
-        console.error("Error adding document:", e);
+    // Create a new session
+    window.createSession = async function() {
+      const timestamp = new Date();
+      const tsString = timestamp.toISOString().replace(/[-:]/g,'').split('.')[0]; // YYYYMMDDTHHMMSS
+      sessionId = `${gameSubject}-${gameCohort}-${tsString}`;
+      const metadata = { subject: gameSubject, cohort: gameCohort, numPlayers: gameNumPlayers, createdAt: serverTimestamp() };
+
+      sessionDocRef = doc(db, 'sessions', sessionId);
+      await setDoc(sessionDocRef, { metadata });
+
+      // Log initial event
+      await logEvent('session_start', { originalText });
+    };
+
+    async function logEvent(eventType, data={}) {
+      if (!sessionDocRef) return;
+      const eventsCol = collection(sessionDocRef, 'events');
+      const ts = new Date().toISOString();
+      await setDoc(doc(eventsCol, ts), { event: eventType, ...data, timestamp: serverTimestamp() });
+    }
+
+    window.logGuess = async function(word, correct) {
+      if (!sessionDocRef) return;
+      await logEvent('guess', { player: currentTurn+1, wordGuessed: word, correct });
+    };
+
+    window.endSession = async function() {
+      if (!sessionDocRef) return;
+      const finalScores = {};
+      players.forEach(p => finalScores[p.name]=p.score);
+      await logEvent('session_end', { finalScores });
+    };
+
+    // Capture abort if user closes window
+    window.addEventListener('beforeunload', async function(e) {
+      if (sessionDocRef) {
+        const unguessedWords = wordElements.filter(w=>!w.revealed).map(w=>w.word);
+        await logEvent('session_abort', { finalScores: players.map(p=>p.score), unguessedWords });
       }
-    }
-
-    // Run test write on page load
-    testWrite();
+    });
   </script>
-  <!-- Firebase SDK -->
-<script type="module">
-  // Import Firebase functions
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-  import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
-
-  // Your Firebase config
-  const firebaseConfig = {
-    apiKey: "AIzaSyAsSuLmWKYEqH2NYdfB4G4bVv4IVfIgz1M",
-    authDomain: "abbeygamebackend.firebaseapp.com",
-    projectId: "abbeygamebackend",
-    storageBucket: "abbeygamebackend.firebasestorage.app",
-    messagingSenderId: "635113946883",
-    appId: "1:635113946883:web:93704f424274e656d57336"
-  };
-
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-
-  // Dummy write for testing
-  async function testWrite() {
-    try {
-      const docRef = await addDoc(collection(db, "testCollection"), {
-        message: "Hello Firestore!",
-        timestamp: new Date()
-      });
-      console.log("Document written with ID:", docRef.id);
-    } catch (e) {
-      console.error("Error adding document:", e);
-    }
-  }
-
-  // Run test write when page loads
-  testWrite();
-</script>
 </body>
 </html>
-
-
-
