@@ -408,6 +408,38 @@
 
   // Run test write when page loads
   testWrite();
-</script>
+    <!-- your page content -->
+
+  <!-- Firebase session logging -->
+  <script type="module">
+    import { getFirestore, doc, setDoc, collection } 
+      from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+
+    const db = getFirestore();
+
+    async function startSession(subject, cohort, numPlayers) {
+      const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0,14);
+      const sessionId = `${subject}-${cohort}-${timestamp}`;
+
+      const sessionRef = doc(collection(db, "sessions"), sessionId);
+
+      const metadata = {
+        subject: subject,
+        cohort: cohort,
+        numPlayers: numPlayers,
+        startTime: new Date(),
+      };
+
+      try {
+        await setDoc(sessionRef, { metadata });
+        console.log("Session started:", sessionId);
+      } catch (error) {
+        console.error("Error creating session:", error);
+      }
+    }
+
+    // Test call
+    startSession("Biology", "Yr10", 3);
+  </script>
 </body>
 </html>
