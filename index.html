@@ -9,7 +9,18 @@
     textarea, select { width: 100%; padding: 8px; margin: 5px 0; font-size: 16px; }
     button { padding: 8px 16px; margin-right: 5px; }
     .small-button { padding: 4px 8px; font-size: 14px; margin-top: 5px; }
-    #clozeContainer { width: 70%; max-width: 1200px; min-height: 100px; max-height: 50vh; border: 1px solid #ccc; padding: 10px; overflow: auto; margin-top: 20px; }
+
+    #clozeContainer {
+      width: 70%;
+      max-width: 1200px;
+      min-height: 100px;
+      max-height: 50vh;
+      border: 1px solid #ccc;
+      padding: 10px;
+      overflow: auto;
+      margin-top: 20px;
+    }
+
     .output { display: block; white-space: normal; overflow-wrap: break-word; font-family: "Consolas", monospace; font-size: 12px; line-height: 1.8; }
     .word { display: inline-block; margin-right: 6px; letter-spacing: 2px; }
     .revealed { font-weight: bold; }
@@ -26,10 +37,10 @@
 <body>
   <h1>Abbey Gap Fill Game</h1>
 
-  <!-- Setup Section -->
   <div id="setupSection">
     <div id="setupFields">
       <p>Select your subject and cohort, input your text, and choose number of players/teams.</p>
+
       <label>Subject:
         <select id="subject">
           <option value="">--Select Subject--</option>
@@ -55,6 +66,7 @@
           <option>Something else</option>
         </select>
       </label><br><br>
+
       <label>Cohort:
         <select id="cohort">
           <option value="">--Select Cohort--</option>
@@ -69,7 +81,9 @@
           <option>Not applicable</option>
         </select>
       </label><br><br>
+
       <textarea id="inputText" placeholder="Type or paste your text here..."></textarea>
+
       <p>Select number of players/teams (1–4):</p>
       <select id="numPlayers">
         <option value="1">1</option>
@@ -79,14 +93,17 @@
       </select>
       <br><br>
     </div>
+
     <button id="generateBtn" onclick="startGame()">Generate Text</button><br>
     <button id="editOriginalBtn" class="small-button" onclick="editOriginalText()" style="display:none;">See/Edit Original Text</button>
   </div>
 
   <div id="gameInfo" style="display:none;"></div>
-  <div id="clozeContainer"><div id="clozeArea" class="output"></div></div>
 
-  <!-- Game Section -->
+  <div id="clozeContainer">
+    <div id="clozeArea" class="output"></div>
+  </div>
+
   <div id="gameSection" style="display:none;">
     <div id="gameControls">
       <div id="guessSection">
@@ -103,12 +120,12 @@
     </div>
   </div>
 
-  <!-- Scripts -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, doc, setDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, doc, setDoc } 
+      from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
 
-    // Firebase setup
+    // Firebase config
     const firebaseConfig = {
       apiKey: "AIzaSyAsSuLmWKYEqH2NYdfB4G4bVv4IVfIgz1M",
       authDomain: "abbeygamebackend.firebaseapp.com",
@@ -117,102 +134,175 @@
       messagingSenderId: "635113946883",
       appId: "1:635113946883:web:93704f424274e656d57336"
     };
+
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
     window.db = db;
 
-    // Game state
-    let wordElements = [], originalText = '', revealedWords = {}, failedGuesses = [], players = [];
-    let currentTurn = 0, gameSubject = '', gameCohort = '', gameNumPlayers = 1;
+    // --- Game logic ---
+    let wordElements = [];
+    let originalText = '';
+    let revealedWords = {};
+    let failedGuesses = [];
+    let players = [];
+    let currentTurn = 0;
+    let gameSubject = '';
+    let gameCohort = '';
+    let gameNumPlayers = 1;
 
-    // --- Session Logging ---
-    function captureTexts() {
-      const inputEl = document.getElementById("inputText");
-      const clozeEl = document.getElementById("clozeArea");
-      return { original: inputEl ? inputEl.value : null, cloze: clozeEl ? clozeEl.innerText : null };
-    }
-
-    async function startSession(subject, cohort, numPlayers) {
-      const timestamp = new Date().toISOString().replace(/[-:T.]/g,"").slice(0,14);
-      const sessionId = `${subject}-${cohort}-${timestamp}`;
-      const sessionRef = doc(collection(db,"sessions"), sessionId);
-      const { original, cloze } = captureTexts();
-      const metadata = { subject, cohort, numPlayers, startTime: new Date(), originalText: original, clozeText: cloze };
-      try { await setDoc(sessionRef, { metadata }); console.log("Session started:", sessionId); }
-      catch(e) { console.error("Error creating session:", e); }
-    }
-    window.startSession = startSession;
-
-    // --- Game Functions ---
     window.startGame = function() {
       const subject = document.getElementById('subject').value;
       const cohort = document.getElementById('cohort').value;
-      if(!subject||!cohort){ alert("Please select both subject and cohort before generating text."); return; }
+
+      if (!subject || !cohort) {
+        alert("Please select both subject and cohort before generating text.");
+        return;
+      }
+
       const numPlayers = parseInt(document.getElementById('numPlayers').value);
-      players = Array.from({length:numPlayers}, (_,i)=>({name:`Player ${i+1}`, score:0}));
-      gameSubject=subject; gameCohort=cohort; gameNumPlayers=numPlayers;
-      originalText = document.getElementById('inputText').value.trim();
-      if(!originalText){ alert("Please input some text to generate."); return; }
-      if(window.startSession) window.startSession(subject,cohort,numPlayers);
-      document.getElementById('setupFields').style.display='none';
-      document.getElementById('editOriginalBtn').style.display='inline-block';
-      document.getElementById('gameSection').style.display='block';
-      document.getElementById('gameInfo').style.display='block';
-      updateGameInfo(); renderCloze(); updateScores();
-      document.getElementById('guessInput').value=''; document.getElementById('guessInput').focus();
+      players = [];
+      for (let i = 1; i <= numPlayers; i++) players.push({ name: `Player ${i}`, score: 0 });
+
+      gameSubject = subject;
+      gameCohort = cohort;
+      gameNumPlayers = numPlayers;
+
+      originalText = document.getElementById('inputText').value;
+      if (!originalText.trim()) {
+        alert("Please input some text to generate.");
+        return;
+      }
+
+      // Firebase session logging
+      if (window.startSession) window.startSession(subject, cohort, numPlayers);
+
+      document.getElementById('setupFields').style.display = 'none';
+      document.getElementById('editOriginalBtn').style.display = 'inline-block';
+      document.getElementById('gameSection').style.display = 'block';
+      document.getElementById('gameInfo').style.display = 'block';
+      updateGameInfo();
+
+      renderCloze();
+      updateScores();
+      document.getElementById('guessInput').value = '';
+      document.getElementById('guessInput').focus();
     };
 
     function updateGameInfo() {
-      document.getElementById('gameInfo').textContent = `Subject: ${gameSubject} | Cohort: ${gameCohort} | Players: ${gameNumPlayers}`;
+      document.getElementById('gameInfo').textContent = 
+        `Subject: ${gameSubject} | Cohort: ${gameCohort} | Players: ${gameNumPlayers}`;
     }
 
     function renderCloze() {
-      const clozeArea = document.getElementById('clozeArea'); clozeArea.innerHTML=''; wordElements=[];
+      const clozeArea = document.getElementById('clozeArea');
+      clozeArea.innerHTML = '';
+      wordElements = [];
+
       const paragraphs = originalText.split(/\n/);
-      paragraphs.forEach((para,pIndex)=>{
-        const tokens = para.match(/\w+|[^\w\s]/g)||[];
-        tokens.forEach((token,i)=>{
-          if(/^\w+$/.test(token)){
-            const span=document.createElement('span');
-            span.className='word';
-            const revealed=revealedWords[token.toLowerCase()]||false;
-            span.textContent=revealed?token:'_'.repeat(token.length);
-            if(revealed) span.classList.add('revealed');
-            wordElements.push({element:span, word:token, revealed:revealed});
+      paragraphs.forEach((para, pIndex) => {
+        const tokens = para.match(/\w+|[^\w\s]/g) || [];
+        tokens.forEach((token, i) => {
+          if (/^\w+$/.test(token)) {
+            const span = document.createElement('span');
+            span.className = 'word';
+            const revealed = revealedWords[token.toLowerCase()] || false;
+            span.textContent = revealed ? token : '_'.repeat(token.length);
+            if (revealed) span.classList.add('revealed');
+            wordElements.push({ element: span, word: token, revealed });
             clozeArea.appendChild(span);
-          } else { clozeArea.appendChild(document.createTextNode(token)); }
-          const next=tokens[i+1];
-          if(next){ if((/^\w+$/.test(token)&&/^\w+$/.test(next))||(/^\w+$/.test(token)&&/[\(\“"']/.test(next))||(/[\)\.\,\!\?\:;']/.test(token)&&/^\w+$/.test(next))) clozeArea.appendChild(document.createTextNode(' ')); }
+          } else {
+            clozeArea.appendChild(document.createTextNode(token));
+          }
+
+          const next = tokens[i + 1];
+          if (next && ((/^\w+$/.test(token) && /^\w+$/.test(next)) ||
+                       (/^\w+$/.test(token) && /[\(\“"']/.test(next)) ||
+                       (/[\)\.\,\!\?\:;']/.test(token) && /^\w+$/.test(next)))) {
+            clozeArea.appendChild(document.createTextNode(' '));
+          }
         });
-        if(pIndex<paragraphs.length-1) clozeArea.appendChild(document.createElement('br'));
+        if (pIndex < paragraphs.length - 1) clozeArea.appendChild(document.createElement('br'));
       });
     }
 
-    function guessWord() {
-      const guessInput=document.getElementById('guessInput'); const guess=guessInput.value.trim().toLowerCase();
-      if(!guess) return;
-      let found=false;
-      wordElements.forEach(item=>{
-        if(!item.revealed && item.word.toLowerCase()===guess){
-          item.element.textContent=item.word; item.element.classList.add('revealed'); item.revealed=true;
-          revealedWords[guess]=true; found=true;
+    window.guessWord = function() {
+      const guessInput = document.getElementById('guessInput');
+      const guess = guessInput.value.trim().toLowerCase();
+      if (!guess) return;
+
+      let found = false;
+      wordElements.forEach(item => {
+        if (!item.revealed && item.word.toLowerCase() === guess) {
+          item.element.textContent = item.word;
+          item.element.classList.add('revealed');
+          item.revealed = true;
+          revealedWords[guess] = true;
+          found = true;
         }
       });
-      if(found) players[currentTurn].score+=1;
-      else { if(!failedGuesses.includes(guess)) failedGuesses.push(guess); updateFailedBank(); }
-      updateScores(); nextTurn();
-      guessInput.value=''; guessInput.focus();
+
+      if (found) players[currentTurn].score += 1;
+      else if (!failedGuesses.includes(guess)) failedGuesses.push(guess);
+
+      updateFailedBank();
+      nextTurn();
+      guessInput.value = '';
+      guessInput.focus();
+    };
+
+    function nextTurn() {
+      currentTurn = (currentTurn + 1) % players.length;
+      updateScores();
     }
 
-    function nextTurn(){ currentTurn=(currentTurn+1)%players.length; updateScores(); }
-    function updateScores(){
-      const scoresDiv=document.getElementById('scores'); scoresDiv.innerHTML='<h3>Scores:</h3>';
-      players.forEach((player,idx)=>{ const turnIndicator=(idx===currentTurn)?' <span class="turn">#</span>':''; scoresDiv.innerHTML+=`<div>${player.name}: ${player.score}${turnIndicator}</div>`; });
+    function updateScores() {
+      const scoresDiv = document.getElementById('scores');
+      scoresDiv.innerHTML = '<h3>Scores:</h3>';
+      players.forEach((player, idx) => {
+        const turnIndicator = (idx === currentTurn) ? ' <span class="turn">#</span>' : '';
+        scoresDiv.innerHTML += `<div>${player.name}: ${player.score}${turnIndicator}</div>`;
+      });
     }
-    function updateFailedBank(){ document.getElementById('failedWords').textContent=failedGuesses.join(', '); }
-    function editOriginalText(){ document.getElementById('setupFields').style.display='block'; }
-    document.getElementById('inputText').addEventListener('input',()=>{ originalText=document.getElementById('inputText').value; renderCloze(); });
 
+    function updateFailedBank() {
+      const failedDiv = document.getElementById('failedWords');
+      failedDiv.textContent = failedGuesses.join(', ');
+    }
+
+    window.editOriginalText = function() {
+      document.getElementById('setupFields').style.display = 'block';
+    };
+
+    document.getElementById('inputText').addEventListener('input', () => {
+      originalText = document.getElementById('inputText').value;
+      renderCloze();
+    });
+
+    // --- Firebase session logging ---
+    function captureTexts() {
+      const inputEl = document.getElementById("inputText");
+      const clozeEl = document.getElementById("clozeArea");
+      return {
+        original: inputEl ? inputEl.value : null,
+        cloze: clozeEl ? clozeEl.innerText : null
+      };
+    }
+
+    window.startSession = async function(subject, cohort, numPlayers) {
+      const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0,14);
+      const sessionId = `${subject}-${cohort}-${timestamp}`;
+      const sessionRef = doc(collection(db, "sessions"), sessionId);
+      const { original, cloze } = captureTexts();
+
+      const metadata = { subject, cohort, numPlayers, startTime: new Date(), originalText: original, clozeText: cloze };
+
+      try {
+        await setDoc(sessionRef, { metadata });
+        console.log("Session started:", sessionId, metadata);
+      } catch (error) {
+        console.error("Error creating session:", error);
+      }
+    };
   </script>
 </body>
 </html>
