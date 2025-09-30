@@ -30,7 +30,6 @@
   <div id="setupSection">
     <div id="setupFields">
       <p>Select your subject and cohort, input your text, and choose number of players/teams.</p>
-
       <label>Subject:
         <select id="subject">
           <option value="">--Select Subject--</option>
@@ -89,7 +88,6 @@
   </div>
 
   <div id="gameInfo" style="display:none;"></div>
-
   <div id="clozeContainer">
     <div id="clozeArea" class="output"></div>
   </div>
@@ -110,7 +108,7 @@
     </div>
   </div>
 
-  <!-- Game Logic & Frontend -->
+  <!-- Game Logic -->
   <script type="module">
     let wordElements = [];
     let originalText = '';
@@ -121,9 +119,10 @@
     let gameSubject = '';
     let gameCohort = '';
     let gameNumPlayers = 1;
+    let currentSessionId = '';
 
     function updateGameInfo() {
-      document.getElementById('gameInfo').textContent = 
+      document.getElementById('gameInfo').textContent =
         `Subject: ${gameSubject} | Cohort: ${gameCohort} | Players: ${gameNumPlayers}`;
     }
 
@@ -131,9 +130,7 @@
       const clozeArea = document.getElementById('clozeArea');
       clozeArea.innerHTML = '';
       wordElements = [];
-
       const paragraphs = originalText.split(/\n/);
-
       paragraphs.forEach((para, pIndex) => {
         const tokens = para.match(/\w+|[^\w\s]/g) || [];
         tokens.forEach((token, i) => {
@@ -149,7 +146,9 @@
             clozeArea.appendChild(document.createTextNode(token));
           }
           const next = tokens[i + 1];
-          if (next && ((/^\w+$/.test(token) && /^\w+$/.test(next)) || (/^\w+$/.test(token) && /[\(\“"']/.test(next)) || (/[\)\.\,\!\?\:;']/.test(token) && /^\w+$/.test(next)))) {
+          if (next && ((/^\w+$/.test(token) && /^\w+$/.test(next)) ||
+                       (/^\w+$/.test(token) && /[\(\“"']/.test(next)) ||
+                       (/[\)\.\,\!\?\:;']/.test(token) && /^\w+$/.test(next)))) {
             clozeArea.appendChild(document.createTextNode(' '));
           }
         });
@@ -198,6 +197,10 @@
         updateFailedBank();
       }
 
+      if (window.logEvent && currentSessionId) {
+        window.logEvent(currentSessionId, { type: 'guess', word: guess, success: found, timestamp: new Date() });
+      }
+
       nextTurn();
       guessInput.value = '';
       guessInput.focus();
@@ -233,7 +236,11 @@
       }
 
       // 🔹 Firebase session logging
-      if (window.startSession) window.startSession(subject, cohort, numPlayers);
+      if (window.startSession) {
+        window.startSession(subject, cohort, numPlayers).then(sessionId => {
+          currentSessionId = sessionId;
+        });
+      }
 
       document.getElementById('setupFields').style.display = 'none';
       document.getElementById('editOriginalBtn').style.display = 'inline-block';
@@ -261,7 +268,7 @@
   <!-- Firebase Integration -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, doc, setDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+    import { getFirestore, collection, doc, setDoc, addDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyAsSuLmWKYEqH2NYdfB4G4bVv4IVfIgz1M",
@@ -276,6 +283,7 @@
     const db = getFirestore(app);
     window.db = db;
 
+    // 🔹 Session logging
     function captureTexts() {
       const inputEl = document.getElementById("inputText");
       const clozeEl = document.getElementById("clozeArea");
@@ -286,29 +294,28 @@
     }
 
     async function startSession(subject, cohort, numPlayers) {
-      const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0,14);
+      const timestamp = new Date().toISOString().replace(/[-:T.]/g,"").slice(0,14);
       const sessionId = `${subject}-${cohort}-${timestamp}`;
       const sessionRef = doc(collection(db, "sessions"), sessionId);
       const { original, cloze } = captureTexts();
-
-      const metadata = {
-        subject,
-        cohort,
-        numPlayers,
-        startTime: new Date(),
-        originalText: original,
-        clozeText: cloze
-      };
-
+      const metadata = { subject, cohort, numPlayers, startTime: new Date(), originalText: original, clozeText: cloze };
       try {
         await setDoc(sessionRef, { metadata });
         console.log("Session started:", sessionId, metadata);
-      } catch (error) {
-        console.error("Error creating session:", error);
-      }
+        return sessionId;
+      } catch (err) { console.error("Error creating session:", err); }
+    }
+
+    // 🔹 Guess/event logging
+    async function logEvent(sessionId, eventData) {
+      const eventRef = doc(collection(db, "sessions", sessionId, "events"));
+      try {
+        await setDoc(eventRef, eventData);
+      } catch(err) { console.error("Error logging event:", err); }
     }
 
     window.startSession = startSession;
+    window.logEvent = logEvent;
   </script>
 </body>
 </html>
