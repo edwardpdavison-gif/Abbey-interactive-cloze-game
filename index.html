@@ -188,30 +188,49 @@
     let gameCohort = '';
     let gameNumPlayers = 1;
 
-    function startGame() {
-      const subject = document.getElementById('subject').value;
-      const cohort = document.getElementById('cohort').value;
+function startGame() {
+  const subject = document.getElementById('subject').value;
+  const cohort = document.getElementById('cohort').value;
 
-      if (!subject || !cohort) {
-        alert("Please select both subject and cohort before generating text.");
-        return;
-      }
+  if (!subject || !cohort) {
+    alert("Please select both subject and cohort before generating text.");
+    return;
+  }
 
-      const numPlayers = parseInt(document.getElementById('numPlayers').value);
-      players = [];
-      for (let i = 1; i <= numPlayers; i++) {
-        players.push({ name: `Player ${i}`, score: 0 });
-      }
+  const numPlayers = parseInt(document.getElementById('numPlayers').value);
+  players = [];
+  for (let i = 1; i <= numPlayers; i++) {
+    players.push({ name: `Player ${i}`, score: 0 });
+  }
 
-      gameSubject = subject;
-      gameCohort = cohort;
-      gameNumPlayers = numPlayers;
+  gameSubject = subject;
+  gameCohort = cohort;
+  gameNumPlayers = numPlayers;
 
-      originalText = document.getElementById('inputText').value;
-      if (!originalText.trim()) {
-        alert("Please input some text to generate.");
-        return;
-      }
+  originalText = document.getElementById('inputText').value;
+  if (!originalText.trim()) {
+    alert("Please input some text to generate.");
+    return;
+  }
+
+  // 🔹 Call Firebase session logging
+  if (window.startSession) {
+    window.startSession(subject, cohort, numPlayers);
+  }
+
+  // Hide setup fields, keep edit button
+  document.getElementById('setupFields').style.display = 'none';
+  document.getElementById('editOriginalBtn').style.display = 'inline-block';
+
+  document.getElementById('gameSection').style.display = 'block';
+  document.getElementById('gameInfo').style.display = 'block';
+  updateGameInfo();
+
+  renderCloze();
+  updateScores();
+  document.getElementById('guessInput').value = '';
+  document.getElementById('guessInput').focus();
+}
 
       // Hide setup fields, keep edit button
       document.getElementById('setupFields').style.display = 'none';
@@ -334,11 +353,12 @@
       renderCloze();
     });
   </script>
-  <!-- Firebase Integration -->
+   <!-- Firebase Integration -->
   <script type="module">
     // Import Firebase SDK modules
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-    import { getFirestore } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, doc, setDoc } 
+      from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
 
     // Firebase configuration
     const firebaseConfig = {
@@ -350,19 +370,27 @@
       appId: "1:635113946883:web:93704f424274e656d57336"
     };
 
-    // Initialize Firebase + Firestore
+    // Initialize Firebase
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
-    window.db = db; // make Firestore globally accessible
-  </script>
+    window.db = db; // expose globally
 
-  <!-- Firebase session logging -->
-  <script type="module">
-    import { getFirestore, doc, setDoc, collection } 
-      from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+    // Optional test write
+    async function testWrite() {
+      try {
+        const docRef = await addDoc(collection(db, "testCollection"), {
+          message: "Hello Firebase!",
+          timestamp: new Date().toISOString()
+        });
+        console.log("Document written with ID:", docRef.id);
+      } catch (e) {
+        console.error("Error adding document:", e);
+      }
+    }
 
-    const db = getFirestore();
+    testWrite(); // only for initial test; can remove later
 
+    // --- Session logging ---
     function captureTexts() {
       const inputEl = document.getElementById("inputText");
       const clozeEl = document.getElementById("clozeArea");
@@ -372,7 +400,7 @@
       };
     }
 
-    export async function startSession(subject, cohort, numPlayers) {
+    async function startSession(subject, cohort, numPlayers) {
       const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0,14);
       const sessionId = `${subject}-${cohort}-${timestamp}`;
       const sessionRef = doc(collection(db, "sessions"), sessionId);
@@ -395,6 +423,9 @@
         console.error("Error creating session:", error);
       }
     }
+
+    // Expose globally so your frontend can call it
+    window.startSession = startSession;
   </script>
 </body>
 </html>
