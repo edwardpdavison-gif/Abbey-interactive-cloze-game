@@ -9,6 +9,7 @@
     textarea, select { width: 100%; padding: 8px; margin: 5px 0; font-size: 16px; }
     button { padding: 8px 16px; margin-right: 5px; }
     .small-button { padding: 4px 8px; font-size: 14px; margin-top: 5px; }
+
     #clozeContainer { width: 70%; max-width: 1200px; min-height: 100px; max-height: 50vh; border: 1px solid #ccc; padding: 10px; overflow: auto; margin-top: 20px; }
     .output { display: block; white-space: normal; overflow-wrap: break-word; font-family: "Consolas", monospace; font-size: 12px; line-height: 1.8; }
     .word { display: inline-block; margin-right: 6px; letter-spacing: 2px; }
@@ -99,6 +100,7 @@
       <div id="guessSection">
         <input type="text" id="guessInput" placeholder="Enter word">
         <button id="guessBtn">Guess Word</button>
+        <button id="endGameBtn" class="small-button">End Game</button>
       </div>
       <div id="rightPanel">
         <div id="failedBankContainer">
@@ -121,7 +123,6 @@
     let gameSubject = '';
     let gameCohort = '';
     let gameNumPlayers = 1;
-    window.currentSessionId = null;
 
     function updateGameInfo() {
       document.getElementById('gameInfo').textContent = 
@@ -232,7 +233,6 @@
         return;
       }
 
-      // 🔹 Firebase session logging
       if (window.startSession) window.startSession(subject, cohort, numPlayers);
 
       document.getElementById('setupFields').style.display = 'none';
@@ -248,30 +248,41 @@
       document.getElementById('guessInput').focus();
     }
 
-    // Log abandoned words if game ends or page unloads
-    async function logAbandonedWords() {
-      if (!window.currentSessionId) return;
-      const unguessedWords = wordElements.filter(item => !item.revealed).map(item => item.word);
-      if (unguessedWords.length === 0) return;
+    function endGame() {
+      // Reveal all unguessed words
+      const unguessedWords = [];
+      wordElements.forEach(item => {
+        if (!item.revealed) {
+          item.element.textContent = item.word;
+          item.element.classList.add('revealed');
+          unguessedWords.push(item.word);
+        }
+      });
 
-      try {
-        await addDoc(collection(db, `sessions/${window.currentSessionId}/events`), {
-          eventType: "abandonedWords",
-          words: unguessedWords,
-          timestamp: new Date()
-        });
-        console.log("Abandoned words logged:", unguessedWords);
-      } catch (error) {
-        console.error("Error logging abandoned words:", error);
+      // Log to Firestore under current session
+      if (window.db) {
+        const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0,14);
+        const sessionId = `${gameSubject}-${gameCohort}-${timestamp}-abandoned`;
+        const sessionRef = doc(collection(window.db, "sessions"), sessionId);
+        setDoc(sessionRef, {
+          subject: gameSubject,
+          cohort: gameCohort,
+          numPlayers: gameNumPlayers,
+          failedWords: failedGuesses,
+          unguessedWords: unguessedWords,
+          endedAt: new Date(),
+          abandoned: true
+        }).then(() => {
+          console.log("Abandoned session logged:", sessionId);
+        }).catch(err => console.error("Error logging abandoned session:", err));
       }
     }
-
-    window.addEventListener("beforeunload", logAbandonedWords);
 
     // Event bindings
     document.getElementById('generateBtn').addEventListener('click', startGame);
     document.getElementById('guessBtn').addEventListener('click', guessWord);
     document.getElementById('editOriginalBtn').addEventListener('click', editOriginalText);
+    document.getElementById('endGameBtn').addEventListener('click', endGame);
     document.getElementById('inputText').addEventListener('input', () => {
       originalText = document.getElementById('inputText').value;
       renderCloze();
@@ -281,7 +292,7 @@
   <!-- Firebase Integration -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, doc, setDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+    import { getFirestore, collection, doc, setDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyAsSuLmWKYEqH2NYdfB4G4bVv4IVfIgz1M",
@@ -308,7 +319,6 @@
     async function startSession(subject, cohort, numPlayers) {
       const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0,14);
       const sessionId = `${subject}-${cohort}-${timestamp}`;
-      window.currentSessionId = sessionId;
       const sessionRef = doc(collection(db, "sessions"), sessionId);
       const { original, cloze } = captureTexts();
 
