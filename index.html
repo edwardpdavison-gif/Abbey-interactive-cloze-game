@@ -9,7 +9,6 @@
     textarea, select { width: 100%; padding: 8px; margin: 5px 0; font-size: 16px; }
     button { padding: 8px 16px; margin-right: 5px; }
     .small-button { padding: 4px 8px; font-size: 14px; margin-top: 5px; }
-
     #clozeContainer { width: 70%; max-width: 1200px; min-height: 100px; max-height: 50vh; border: 1px solid #ccc; padding: 10px; overflow: auto; margin-top: 20px; }
     .output { display: block; white-space: normal; overflow-wrap: break-word; font-family: "Consolas", monospace; font-size: 12px; line-height: 1.8; }
     .word { display: inline-block; margin-right: 6px; letter-spacing: 2px; }
@@ -31,7 +30,6 @@
   <div id="setupSection">
     <div id="setupFields">
       <p>Select your subject and cohort, input your text, and choose number of players/teams.</p>
-
       <label>Subject:
         <select id="subject">
           <option value="">--Select Subject--</option>
@@ -57,7 +55,6 @@
           <option>Something else</option>
         </select>
       </label><br><br>
-
       <label>Cohort:
         <select id="cohort">
           <option value="">--Select Cohort--</option>
@@ -72,9 +69,7 @@
           <option>Not applicable</option>
         </select>
       </label><br><br>
-
       <textarea id="inputText" placeholder="Type or paste your text here..."></textarea>
-
       <p>Select number of players/teams (1–4):</p>
       <select id="numPlayers">
         <option value="1">1</option>
@@ -84,7 +79,6 @@
       </select>
       <br><br>
     </div>
-
     <button id="generateBtn">Generate Text</button><br>
     <button id="editOriginalBtn" class="small-button" style="display:none;">See/Edit Original Text</button>
   </div>
@@ -100,7 +94,7 @@
       <div id="guessSection">
         <input type="text" id="guessInput" placeholder="Enter word">
         <button id="guessBtn">Guess Word</button>
-        <button id="endGameBtn" class="small-button">End Game</button>
+        <button id="endGameBtn" class="small-button" style="margin-top:10px;">End Game</button>
       </div>
       <div id="rightPanel">
         <div id="failedBankContainer">
@@ -133,7 +127,6 @@
       const clozeArea = document.getElementById('clozeArea');
       clozeArea.innerHTML = '';
       wordElements = [];
-
       const paragraphs = originalText.split(/\n/);
       paragraphs.forEach((para, pIndex) => {
         const tokens = para.match(/\w+|[^\w\s]/g) || [];
@@ -180,7 +173,6 @@
       const guessInput = document.getElementById('guessInput');
       const guess = guessInput.value.trim().toLowerCase();
       if (!guess) return;
-
       let found = false;
       wordElements.forEach(item => {
         if (!item.revealed && item.word.toLowerCase() === guess) {
@@ -191,14 +183,11 @@
           found = true;
         }
       });
-
-      if (found) {
-        players[currentTurn].score += 1;
-      } else if (!failedGuesses.includes(guess)) {
+      if (found) players[currentTurn].score += 1;
+      else if (!failedGuesses.includes(guess)) {
         failedGuesses.push(guess);
         updateFailedBank();
       }
-
       nextTurn();
       guessInput.value = '';
       guessInput.focus();
@@ -211,28 +200,25 @@
     function startGame() {
       const subject = document.getElementById('subject').value;
       const cohort = document.getElementById('cohort').value;
-
       if (!subject || !cohort) {
         alert("Please select both subject and cohort before generating text.");
         return;
       }
-
       const numPlayers = parseInt(document.getElementById('numPlayers').value);
       players = [];
       for (let i = 1; i <= numPlayers; i++) {
         players.push({ name: `Player ${i}`, score: 0 });
       }
-
       gameSubject = subject;
       gameCohort = cohort;
       gameNumPlayers = numPlayers;
-
       originalText = document.getElementById('inputText').value;
       if (!originalText.trim()) {
         alert("Please input some text to generate.");
         return;
       }
 
+      // Firebase session logging
       if (window.startSession) window.startSession(subject, cohort, numPlayers);
 
       document.getElementById('setupFields').style.display = 'none';
@@ -249,33 +235,24 @@
     }
 
     function endGame() {
-      // Reveal all unguessed words
-      const unguessedWords = [];
+      // Reveal unguessed words
       wordElements.forEach(item => {
         if (!item.revealed) {
           item.element.textContent = item.word;
           item.element.classList.add('revealed');
-          unguessedWords.push(item.word);
         }
       });
 
-      // Log to Firestore under current session
+      // Log unguessed words to Firebase
+      const unguessedWords = wordElements.filter(item => !revealedWords[item.word.toLowerCase()]).map(item => item.word);
       if (window.db) {
-        const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0,14);
-        const sessionId = `${gameSubject}-${gameCohort}-${timestamp}-abandoned`;
-        const sessionRef = doc(collection(window.db, "sessions"), sessionId);
-        setDoc(sessionRef, {
-          subject: gameSubject,
-          cohort: gameCohort,
-          numPlayers: gameNumPlayers,
-          failedWords: failedGuesses,
-          unguessedWords: unguessedWords,
-          endedAt: new Date(),
-          abandoned: true
-        }).then(() => {
-          console.log("Abandoned session logged:", sessionId);
-        }).catch(err => console.error("Error logging abandoned session:", err));
+        const { doc, collection, setDoc } = await import("https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js");
+        const endRef = doc(collection(window.db, "endedGames"), new Date().toISOString());
+        await setDoc(endRef, { subject: gameSubject, cohort: gameCohort, unguessedWords, timestamp: new Date() });
+        console.log("End game logged:", unguessedWords);
       }
+
+      alert("Game ended. Unguessed words are now revealed.");
     }
 
     // Event bindings
@@ -292,7 +269,7 @@
   <!-- Firebase Integration -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-    import { getFirestore, collection, doc, setDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, doc, setDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyAsSuLmWKYEqH2NYdfB4G4bVv4IVfIgz1M",
@@ -343,4 +320,3 @@
   </script>
 </body>
 </html>
-
