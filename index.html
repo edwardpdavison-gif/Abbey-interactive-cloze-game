@@ -338,7 +338,7 @@
   <script type="module">
     // Import Firebase SDK modules
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-    import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+    import { getFirestore } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
 
     // Firebase configuration
     const firebaseConfig = {
@@ -350,65 +350,11 @@
       appId: "1:635113946883:web:93704f424274e656d57336"
     };
 
-    // Initialize Firebase
+    // Initialize Firebase + Firestore
     const app = initializeApp(firebaseConfig);
-
-    // Initialize Firestore and expose globally
     const db = getFirestore(app);
-    window.db = db; // allows other scripts to use "db"
-
-    // Test write to Firestore
-    async function testWrite() {
-      try {
-        const docRef = await addDoc(collection(db, "testCollection"), {
-          message: "Hello Firebase!",
-          timestamp: new Date().toISOString()
-        });
-        console.log("Document written with ID:", docRef.id);
-      } catch (e) {
-        console.error("Error adding document:", e);
-      }
-    }
-
-    // Run test write on page load
-    testWrite();
+    window.db = db; // make Firestore globally accessible
   </script>
-  <!-- Firebase SDK -->
-<script type="module">
-  // Import Firebase functions
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-  import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
-
-  // Your Firebase config
-  const firebaseConfig = {
-    apiKey: "AIzaSyAsSuLmWKYEqH2NYdfB4G4bVv4IVfIgz1M",
-    authDomain: "abbeygamebackend.firebaseapp.com",
-    projectId: "abbeygamebackend",
-    storageBucket: "abbeygamebackend.firebasestorage.app",
-    messagingSenderId: "635113946883",
-    appId: "1:635113946883:web:93704f424274e656d57336"
-  };
-
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-
-  // Dummy write for testing
-  async function testWrite() {
-    try {
-      const docRef = await addDoc(collection(db, "testCollection"), {
-        message: "Hello Firestore!",
-        timestamp: new Date()
-      });
-      console.log("Document written with ID:", docRef.id);
-    } catch (e) {
-      console.error("Error adding document:", e);
-    }
-  }
-
-  // Run test write when page loads
-  testWrite();
-    <!-- your page content -->
 
   <!-- Firebase session logging -->
   <script type="module">
@@ -417,29 +363,38 @@
 
     const db = getFirestore();
 
-    async function startSession(subject, cohort, numPlayers) {
+    function captureTexts() {
+      const inputEl = document.getElementById("inputText");
+      const clozeEl = document.getElementById("clozeArea");
+      return {
+        original: inputEl ? inputEl.value : null,
+        cloze: clozeEl ? clozeEl.innerText : null
+      };
+    }
+
+    export async function startSession(subject, cohort, numPlayers) {
       const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0,14);
       const sessionId = `${subject}-${cohort}-${timestamp}`;
-
       const sessionRef = doc(collection(db, "sessions"), sessionId);
 
+      const { original, cloze } = captureTexts();
+
       const metadata = {
-        subject: subject,
-        cohort: cohort,
-        numPlayers: numPlayers,
+        subject,
+        cohort,
+        numPlayers,
         startTime: new Date(),
+        originalText: original,
+        clozeText: cloze
       };
 
       try {
         await setDoc(sessionRef, { metadata });
-        console.log("Session started:", sessionId);
+        console.log("Session started:", sessionId, metadata);
       } catch (error) {
         console.error("Error creating session:", error);
       }
     }
-
-    // Test call
-    startSession("Biology", "Yr10", 3);
   </script>
 </body>
 </html>
