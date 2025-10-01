@@ -30,6 +30,7 @@
   <div id="setupSection">
     <div id="setupFields">
       <p>Select your subject and cohort, input your text, and choose number of players/teams.</p>
+
       <label>Subject:
         <select id="subject">
           <option value="">--Select Subject--</option>
@@ -55,6 +56,7 @@
           <option>Something else</option>
         </select>
       </label><br><br>
+
       <label>Cohort:
         <select id="cohort">
           <option value="">--Select Cohort--</option>
@@ -69,7 +71,9 @@
           <option>Not applicable</option>
         </select>
       </label><br><br>
+
       <textarea id="inputText" placeholder="Type or paste your text here..."></textarea>
+
       <p>Select number of players/teams (1–4):</p>
       <select id="numPlayers">
         <option value="1">1</option>
@@ -79,22 +83,20 @@
       </select>
       <br><br>
     </div>
+
     <button id="generateBtn">Generate Text</button><br>
     <button id="editOriginalBtn" class="small-button" style="display:none;">See/Edit Original Text</button>
+    <button id="endGameBtn" class="small-button" style="display:none;">End Game</button>
   </div>
 
   <div id="gameInfo" style="display:none;"></div>
-
-  <div id="clozeContainer">
-    <div id="clozeArea" class="output"></div>
-  </div>
+  <div id="clozeContainer"><div id="clozeArea" class="output"></div></div>
 
   <div id="gameSection" style="display:none;">
     <div id="gameControls">
       <div id="guessSection">
         <input type="text" id="guessInput" placeholder="Enter word">
         <button id="guessBtn">Guess Word</button>
-        <button id="endGameBtn" class="small-button" style="margin-top:10px;">End Game</button>
       </div>
       <div id="rightPanel">
         <div id="failedBankContainer">
@@ -106,8 +108,25 @@
     </div>
   </div>
 
-  <!-- Game Logic & Frontend -->
+  <!-- Firebase & Game Logic -->
   <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, doc, setDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+
+    // Firebase setup
+    const firebaseConfig = {
+      apiKey: "AIzaSyAsSuLmWKYEqH2NYdfB4G4bVv4IVfIgz1M",
+      authDomain: "abbeygamebackend.firebaseapp.com",
+      projectId: "abbeygamebackend",
+      storageBucket: "abbeygamebackend.firebasestorage.app",
+      messagingSenderId: "635113946883",
+      appId: "1:635113946883:web:93704f424274e656d57336"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    window.db = db;
+
     let wordElements = [];
     let originalText = '';
     let revealedWords = {};
@@ -169,10 +188,36 @@
       updateScores();
     }
 
+    function captureTexts() {
+      const inputEl = document.getElementById("inputText");
+      const clozeEl = document.getElementById("clozeArea");
+      return { original: inputEl ? inputEl.value : null, cloze: clozeEl ? clozeEl.innerText : null };
+    }
+
+    async function startSession(subject, cohort, numPlayers) {
+      const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0,14);
+      const sessionId = `${subject}-${cohort}-${timestamp}`;
+      const sessionRef = doc(collection(db, "sessions"), sessionId);
+      const { original, cloze } = captureTexts();
+      const metadata = { subject, cohort, numPlayers, startTime: new Date(), originalText: original, clozeText: cloze };
+      try { await setDoc(sessionRef, { metadata }); console.log("Session started:", sessionId, metadata); } 
+      catch (error) { console.error("Error creating session:", error); }
+      window.currentSessionId = sessionId; // store for guess logging
+    }
+
+    async function logGuess(guess, success) {
+      if (!window.currentSessionId) return;
+      try {
+        const guessRef = doc(collection(db, "sessions", window.currentSessionId, "guesses"));
+        await setDoc(guessRef, { guess, success, timestamp: new Date() });
+      } catch(e) { console.error("Error logging guess:", e); }
+    }
+
     function guessWord() {
       const guessInput = document.getElementById('guessInput');
       const guess = guessInput.value.trim().toLowerCase();
       if (!guess) return;
+
       let found = false;
       wordElements.forEach(item => {
         if (!item.revealed && item.word.toLowerCase() === guess) {
@@ -183,76 +228,54 @@
           found = true;
         }
       });
+
       if (found) players[currentTurn].score += 1;
-      else if (!failedGuesses.includes(guess)) {
-        failedGuesses.push(guess);
-        updateFailedBank();
-      }
+      else if (!failedGuesses.includes(guess)) { failedGuesses.push(guess); updateFailedBank(); }
+
+      logGuess(guess, found); // log each guess
+
       nextTurn();
       guessInput.value = '';
       guessInput.focus();
     }
 
-    function editOriginalText() {
-      document.getElementById('setupFields').style.display = 'block';
+    function editOriginalText() { document.getElementById('setupFields').style.display = 'block'; }
+
+    function endGame() {
+      // Reveal all remaining words
+      wordElements.forEach(item => { if (!item.revealed) { item.element.textContent = item.word; item.element.classList.add('revealed'); } });
+      const unguessed = wordElements.filter(item => !revealedWords[item.word.toLowerCase()]).map(item => item.word);
+
+      // Log unguessed words
+      if (window.currentSessionId) {
+        const unguessedRef = doc(collection(db, "sessions", window.currentSessionId, "unguessed"));
+        setDoc(unguessedRef, { words: unguessed, timestamp: new Date() }).catch(e => console.error("Error logging unguessed words:", e));
+      }
+
+      document.getElementById('endGameBtn').style.display = 'none';
     }
 
     function startGame() {
       const subject = document.getElementById('subject').value;
       const cohort = document.getElementById('cohort').value;
-      if (!subject || !cohort) {
-        alert("Please select both subject and cohort before generating text.");
-        return;
-      }
+      if (!subject || !cohort) { alert("Please select both subject and cohort before generating text."); return; }
+
       const numPlayers = parseInt(document.getElementById('numPlayers').value);
-      players = [];
-      for (let i = 1; i <= numPlayers; i++) {
-        players.push({ name: `Player ${i}`, score: 0 });
-      }
-      gameSubject = subject;
-      gameCohort = cohort;
-      gameNumPlayers = numPlayers;
+      players = []; for (let i=1; i<=numPlayers; i++) players.push({ name:`Player ${i}`, score:0 });
+      gameSubject = subject; gameCohort = cohort; gameNumPlayers = numPlayers;
       originalText = document.getElementById('inputText').value;
-      if (!originalText.trim()) {
-        alert("Please input some text to generate.");
-        return;
-      }
+      if (!originalText.trim()) { alert("Please input some text to generate."); return; }
 
-      // Firebase session logging
-      if (window.startSession) window.startSession(subject, cohort, numPlayers);
+      if (window.startSession) startSession(subject, cohort, numPlayers);
 
-      document.getElementById('setupFields').style.display = 'none';
-      document.getElementById('editOriginalBtn').style.display = 'inline-block';
-      document.getElementById('gameSection').style.display = 'block';
-      document.getElementById('gameInfo').style.display = 'block';
+      document.getElementById('setupFields').style.display='none';
+      document.getElementById('editOriginalBtn').style.display='inline-block';
+      document.getElementById('endGameBtn').style.display='inline-block';
+      document.getElementById('gameSection').style.display='block';
+      document.getElementById('gameInfo').style.display='block';
 
-      updateGameInfo();
-      renderCloze();
-      updateScores();
-
-      document.getElementById('guessInput').value = '';
-      document.getElementById('guessInput').focus();
-    }
-
-    function endGame() {
-      // Reveal unguessed words
-      wordElements.forEach(item => {
-        if (!item.revealed) {
-          item.element.textContent = item.word;
-          item.element.classList.add('revealed');
-        }
-      });
-
-      // Log unguessed words to Firebase
-      const unguessedWords = wordElements.filter(item => !revealedWords[item.word.toLowerCase()]).map(item => item.word);
-      if (window.db) {
-        const { doc, collection, setDoc } = await import("https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js");
-        const endRef = doc(collection(window.db, "endedGames"), new Date().toISOString());
-        await setDoc(endRef, { subject: gameSubject, cohort: gameCohort, unguessedWords, timestamp: new Date() });
-        console.log("End game logged:", unguessedWords);
-      }
-
-      alert("Game ended. Unguessed words are now revealed.");
+      updateGameInfo(); renderCloze(); updateScores();
+      document.getElementById('guessInput').value=''; document.getElementById('guessInput').focus();
     }
 
     // Event bindings
@@ -260,63 +283,9 @@
     document.getElementById('guessBtn').addEventListener('click', guessWord);
     document.getElementById('editOriginalBtn').addEventListener('click', editOriginalText);
     document.getElementById('endGameBtn').addEventListener('click', endGame);
-    document.getElementById('inputText').addEventListener('input', () => {
-      originalText = document.getElementById('inputText').value;
-      renderCloze();
-    });
-  </script>
+    document.getElementById('inputText').addEventListener('input', () => { originalText=document.getElementById('inputText').value; renderCloze(); });
 
-  <!-- Firebase Integration -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, doc, setDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
-
-    const firebaseConfig = {
-      apiKey: "AIzaSyAsSuLmWKYEqH2NYdfB4G4bVv4IVfIgz1M",
-      authDomain: "abbeygamebackend.firebaseapp.com",
-      projectId: "abbeygamebackend",
-      storageBucket: "abbeygamebackend.firebasestorage.app",
-      messagingSenderId: "635113946883",
-      appId: "1:635113946883:web:93704f424274e656d57336"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-    window.db = db;
-
-    function captureTexts() {
-      const inputEl = document.getElementById("inputText");
-      const clozeEl = document.getElementById("clozeArea");
-      return {
-        original: inputEl ? inputEl.value : null,
-        cloze: clozeEl ? clozeEl.innerText : null
-      };
-    }
-
-    async function startSession(subject, cohort, numPlayers) {
-      const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0,14);
-      const sessionId = `${subject}-${cohort}-${timestamp}`;
-      const sessionRef = doc(collection(db, "sessions"), sessionId);
-      const { original, cloze } = captureTexts();
-
-      const metadata = {
-        subject,
-        cohort,
-        numPlayers,
-        startTime: new Date(),
-        originalText: original,
-        clozeText: cloze
-      };
-
-      try {
-        await setDoc(sessionRef, { metadata });
-        console.log("Session started:", sessionId, metadata);
-      } catch (error) {
-        console.error("Error creating session:", error);
-      }
-    }
-
-    window.startSession = startSession;
   </script>
 </body>
 </html>
+
