@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Abbey Gap Fill Game</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
@@ -21,6 +21,8 @@
     #rightPanel { display: flex; flex-direction: row; gap: 20px; }
     #failedBankContainer { width: 300px; border: 1px solid #ccc; padding: 10px; height: auto; font-family: "Comic Sans MS", cursive, sans-serif; color: red; background-color: #ffe6e6; }
     #scores { width: 150px; }
+    /* make the End Game more visible */
+    #endGameBtn { background: #d9534f; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -86,11 +88,15 @@
 
     <button id="generateBtn">Generate Text</button><br>
     <button id="editOriginalBtn" class="small-button" style="display:none;">See/Edit Original Text</button>
+    <!-- End Game is hidden until a game starts -->
     <button id="endGameBtn" class="small-button" style="display:none;">End Game</button>
   </div>
 
   <div id="gameInfo" style="display:none;"></div>
-  <div id="clozeContainer"><div id="clozeArea" class="output"></div></div>
+
+  <div id="clozeContainer">
+    <div id="clozeArea" class="output"></div>
+  </div>
 
   <div id="gameSection" style="display:none;">
     <div id="gameControls">
@@ -98,6 +104,7 @@
         <input type="text" id="guessInput" placeholder="Enter word">
         <button id="guessBtn">Guess Word</button>
       </div>
+
       <div id="rightPanel">
         <div id="failedBankContainer">
           <h4>Bank of Failed Guesses:</h4>
@@ -108,12 +115,264 @@
     </div>
   </div>
 
-  <!-- Firebase & Game Logic -->
+  <!-- FRONTEND (non-module) – always runs, independent of Firebase -->
+  <script>
+    // UI + game logic in a non-module script so it runs even if Firebase module fails
+    (function () {
+      let wordElements = [];
+      let originalText = '';
+      let revealedWords = {};
+      let failedGuesses = [];
+      let players = [];
+      let currentTurn = 0;
+      let gameSubject = '';
+      let gameCohort = '';
+      let gameNumPlayers = 1;
+
+      function updateGameInfo() {
+        document.getElementById('gameInfo').textContent =
+          `Subject: ${gameSubject} | Cohort: ${gameCohort} | Players: ${gameNumPlayers}`;
+      }
+
+      function renderCloze() {
+        const clozeArea = document.getElementById('clozeArea');
+        clozeArea.innerHTML = '';
+        wordElements = [];
+
+        const paragraphs = originalText.split(/\n/);
+        paragraphs.forEach((para, pIndex) => {
+          const tokens = para.match(/\w+|[^\w\s]/g) || [];
+          tokens.forEach((token, i) => {
+            if (/^\w+$/.test(token)) {
+              const span = document.createElement('span');
+              span.className = 'word';
+              const revealed = revealedWords[token.toLowerCase()] || false;
+              span.textContent = revealed ? token : '_'.repeat(token.length);
+              if (revealed) span.classList.add('revealed');
+              wordElements.push({ element: span, word: token, revealed });
+              clozeArea.appendChild(span);
+            } else {
+              // punctuation or other char
+              clozeArea.appendChild(document.createTextNode(token));
+            }
+
+            const next = tokens[i + 1];
+            if (next && (
+                (/^\w+$/.test(token) && /^\w+$/.test(next)) ||
+                (/^\w+$/.test(token) && /[\(\“"']/.test(next)) ||
+                (/[\)\.\,\!\?\:;']/.test(token) && /^\w+$/.test(next))
+              )) {
+              clozeArea.appendChild(document.createTextNode(' '));
+            }
+          });
+
+          if (pIndex < paragraphs.length - 1) clozeArea.appendChild(document.createElement('br'));
+        });
+      }
+
+      function updateScores() {
+        const scoresDiv = document.getElementById('scores');
+        scoresDiv.innerHTML = '<h3>Scores:</h3>';
+        players.forEach((player, idx) => {
+          const turnIndicator = (idx === currentTurn) ? ' <span class="turn">#</span>' : '';
+          scoresDiv.innerHTML += `<div>${player.name}: ${player.score}${turnIndicator}</div>`;
+        });
+      }
+
+      function updateFailedBank() {
+        document.getElementById('failedWords').textContent = failedGuesses.join(', ');
+      }
+
+      function nextTurn() {
+        if (players.length === 0) return;
+        currentTurn = (currentTurn + 1) % players.length;
+        updateScores();
+      }
+
+      // Send guess to firebase logging if available. Non-blocking (fire-and-forget)
+      function maybeLogGuess(guess, success) {
+        try {
+          if (window.logGuess && window.currentSessionId) {
+            // don't await
+            window.logGuess(guess, success).catch(e => console.warn('logGuess failed', e));
+          }
+        } catch (e) {
+          console.warn('logGuess not available', e);
+        }
+      }
+
+      // Called when user hits Guess Word
+      function guessWord() {
+        const guessInput = document.getElementById('guessInput');
+        const guess = guessInput.value.trim().toLowerCase();
+        if (!guess) return;
+
+        let found = false;
+        wordElements.forEach(item => {
+          if (!item.revealed && item.word.toLowerCase() === guess) {
+            item.element.textContent = item.word;
+            item.element.classList.add('revealed');
+            item.revealed = true;
+            revealedWords[guess] = true;
+            found = true;
+          }
+        });
+
+        if (found) {
+          if (players[currentTurn]) players[currentTurn].score += 1;
+        } else {
+          if (!failedGuesses.includes(guess)) {
+            failedGuesses.push(guess);
+            updateFailedBank();
+          }
+        }
+
+        // log guess (non-blocking)
+        maybeLogGuess(guess, found);
+
+        nextTurn();
+        guessInput.value = '';
+        guessInput.focus();
+      }
+
+      function editOriginalText() {
+        document.getElementById('setupFields').style.display = 'block';
+      }
+
+      // reveal + log abandoned words
+      async function endGame() {
+        // reveal
+        const unguessedWords = [];
+        wordElements.forEach(item => {
+          if (!item.revealed) {
+            item.element.textContent = item.word;
+            item.element.classList.add('revealed');
+            unguessedWords.push(item.word);
+          }
+        });
+
+        // call firebase logger if available (non-blocking)
+        try {
+          if (window.logAbandonedWords && window.currentSessionId) {
+            window.logAbandonedWords(unguessedWords).catch(e => console.warn('logAbandonedWords failed', e));
+          } else if (window.db && window.currentSessionId) {
+            // fallback: try to write to sessions/{id}/events using addDoc if logAbandonedWords wasn't provided
+            // best-effort, non-blocking
+            try {
+              const fallback = window.db;
+              // we cannot import addDoc here; just warn (Firebase module should provide logAbandonedWords)
+              console.warn('logAbandonedWords not available; consider reloading Firebase module to enable logging.');
+            } catch (e) {
+              console.warn('fallback logging failed', e);
+            }
+          }
+        } catch (e) {
+          console.warn('error while attempting to log abandoned words', e);
+        }
+
+        // hide the end game button to indicate finished
+        const btn = document.getElementById('endGameBtn');
+        if (btn) btn.style.display = 'none';
+
+        updateScores();
+        alert('Game ended — unguessed words revealed.');
+      }
+
+      // start a new game
+      function startGame() {
+        const subject = document.getElementById('subject').value;
+        const cohort = document.getElementById('cohort').value;
+        if (!subject || !cohort) {
+          alert('Please select both subject and cohort before generating text.');
+          return;
+        }
+
+        const numPlayers = parseInt(document.getElementById('numPlayers').value);
+        players = [];
+        for (let i = 1; i <= numPlayers; i++) players.push({ name: `Player ${i}`, score: 0 });
+
+        gameSubject = subject;
+        gameCohort = cohort;
+        gameNumPlayers = numPlayers;
+
+        originalText = document.getElementById('inputText').value;
+        if (!originalText || !originalText.trim()) {
+          alert('Please input some text to generate.');
+          return;
+        }
+
+        // call firebase startSession if available; store session id on window.currentSessionId
+        try {
+          if (window.startSession) {
+            const p = window.startSession(subject, cohort, numPlayers);
+            if (p && typeof p.then === 'function') {
+              p.then(id => { window.currentSessionId = id; console.log('session id stored:', id); })
+               .catch(err => console.warn('startSession failed:', err));
+            } else if (typeof p === 'string') {
+              window.currentSessionId = p;
+            }
+          }
+        } catch (e) {
+          console.warn('startSession call failed (may be offline):', e);
+        }
+
+        // update UI
+        document.getElementById('setupFields').style.display = 'none';
+        document.getElementById('editOriginalBtn').style.display = 'inline-block';
+        document.getElementById('gameSection').style.display = 'block';
+        document.getElementById('gameInfo').style.display = 'block';
+        document.getElementById('endGameBtn').style.display = 'inline-block';
+
+        updateGameInfo();
+        renderCloze();
+        updateScores();
+
+        document.getElementById('guessInput').value = '';
+        document.getElementById('guessInput').focus();
+      }
+
+      // attach listeners on DOMContentLoaded
+      document.addEventListener('DOMContentLoaded', () => {
+        // bind controls
+        const gen = document.getElementById('generateBtn');
+        const guessBtn = document.getElementById('guessBtn');
+        const editBtn = document.getElementById('editOriginalBtn');
+        const endBtn = document.getElementById('endGameBtn');
+        const inputText = document.getElementById('inputText');
+
+        if (gen) gen.addEventListener('click', startGame);
+        if (guessBtn) guessBtn.addEventListener('click', guessWord);
+        if (editBtn) editBtn.addEventListener('click', editOriginalText);
+        if (endBtn) endBtn.addEventListener('click', endGame);
+        if (inputText) inputText.addEventListener('input', () => { originalText = inputText.value; renderCloze(); });
+
+        // small UX: allow Enter on guess input to submit
+        const guessInputEl = document.getElementById('guessInput');
+        if (guessInputEl) {
+          guessInputEl.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              guessWord();
+            }
+          });
+        }
+
+        // initial render (empty)
+        renderCloze();
+      });
+
+      // expose for debugging if needed
+      window._abbey = {
+        getState: () => ({ wordElements, originalText, revealedWords, failedGuesses, players, currentTurn, gameSubject, gameCohort })
+      };
+    })();
+  </script>
+
+  <!-- FIREBASE (module) – separate so Firebase errors won't break UI script -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, doc, setDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+    import { getFirestore, collection, setDoc, addDoc, doc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
 
-    // Firebase setup
     const firebaseConfig = {
       apiKey: "AIzaSyAsSuLmWKYEqH2NYdfB4G4bVv4IVfIgz1M",
       authDomain: "abbeygamebackend.firebaseapp.com",
@@ -127,165 +386,83 @@
     const db = getFirestore(app);
     window.db = db;
 
-    let wordElements = [];
-    let originalText = '';
-    let revealedWords = {};
-    let failedGuesses = [];
-    let players = [];
-    let currentTurn = 0;
-    let gameSubject = '';
-    let gameCohort = '';
-    let gameNumPlayers = 1;
-
-    function updateGameInfo() {
-      document.getElementById('gameInfo').textContent = 
-        `Subject: ${gameSubject} | Cohort: ${gameCohort} | Players: ${gameNumPlayers}`;
-    }
-
-    function renderCloze() {
-      const clozeArea = document.getElementById('clozeArea');
-      clozeArea.innerHTML = '';
-      wordElements = [];
-      const paragraphs = originalText.split(/\n/);
-      paragraphs.forEach((para, pIndex) => {
-        const tokens = para.match(/\w+|[^\w\s]/g) || [];
-        tokens.forEach((token, i) => {
-          if (/^\w+$/.test(token)) {
-            const span = document.createElement('span');
-            span.className = 'word';
-            const revealed = revealedWords[token.toLowerCase()] || false;
-            span.textContent = revealed ? token : '_'.repeat(token.length);
-            if (revealed) span.classList.add('revealed');
-            wordElements.push({ element: span, word: token, revealed });
-            clozeArea.appendChild(span);
-          } else {
-            clozeArea.appendChild(document.createTextNode(token));
-          }
-          const next = tokens[i + 1];
-          if (next && ((/^\w+$/.test(token) && /^\w+$/.test(next)) || (/^\w+$/.test(token) && /[\(\“"']/.test(next)) || (/[\)\.\,\!\?\:;']/.test(token) && /^\w+$/.test(next)))) {
-            clozeArea.appendChild(document.createTextNode(' '));
-          }
-        });
-        if (pIndex < paragraphs.length - 1) clozeArea.appendChild(document.createElement('br'));
-      });
-    }
-
-    function updateScores() {
-      const scoresDiv = document.getElementById('scores');
-      scoresDiv.innerHTML = '<h3>Scores:</h3>';
-      players.forEach((player, idx) => {
-        const turnIndicator = (idx === currentTurn) ? ' <span class="turn">#</span>' : '';
-        scoresDiv.innerHTML += `<div>${player.name}: ${player.score}${turnIndicator}</div>`;
-      });
-    }
-
-    function updateFailedBank() {
-      document.getElementById('failedWords').textContent = failedGuesses.join(', ');
-    }
-
-    function nextTurn() {
-      currentTurn = (currentTurn + 1) % players.length;
-      updateScores();
-    }
-
-    function captureTexts() {
-      const inputEl = document.getElementById("inputText");
-      const clozeEl = document.getElementById("clozeArea");
-      return { original: inputEl ? inputEl.value : null, cloze: clozeEl ? clozeEl.innerText : null };
-    }
-
-    async function startSession(subject, cohort, numPlayers) {
+    // startSession: create sessions/{sessionId} with metadata and return sessionId
+    window.startSession = async function(subject, cohort, numPlayers) {
       const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0,14);
       const sessionId = `${subject}-${cohort}-${timestamp}`;
       const sessionRef = doc(collection(db, "sessions"), sessionId);
-      const { original, cloze } = captureTexts();
-      const metadata = { subject, cohort, numPlayers, startTime: new Date(), originalText: original, clozeText: cloze };
-      try { await setDoc(sessionRef, { metadata }); console.log("Session started:", sessionId, metadata); } 
-      catch (error) { console.error("Error creating session:", error); }
-      window.currentSessionId = sessionId; // store for guess logging
-    }
+      // metadata capture
+      const metadata = {
+        subject,
+        cohort,
+        numPlayers,
+        startTime: new Date(),
+        originalText: (document.getElementById('inputText') || {}).value || '',
+        userAgent: navigator.userAgent
+      };
+      try {
+        await setDoc(sessionRef, { metadata });
+        console.log('Session started (Firestore):', sessionId);
+      } catch (err) {
+        console.error('Failed to create session document:', err);
+      }
+      // store and return session id
+      window.currentSessionId = sessionId;
+      return sessionId;
+    };
 
-    async function logGuess(guess, success) {
+    // log each guess under sessions/{sessionId}/guesses (auto-id)
+    window.logGuess = async function(guess, success) {
+      if (!window.currentSessionId) {
+        console.warn('No session id — skipping guess log');
+        return;
+      }
+      try {
+        await addDoc(collection(db, "sessions", window.currentSessionId, "guesses"), {
+          guess,
+          success,
+          timestamp: new Date()
+        });
+        console.log('Guess logged:', guess, success);
+      } catch (err) {
+        console.error('Error logging guess:', err);
+      }
+    };
+
+    // log abandoned/unrevealed words under sessions/{sessionId}/events
+    window.logAbandonedWords = async function(unguessedWords) {
+      if (!window.currentSessionId) {
+        console.warn('No session id — skipping abandoned words log');
+        return;
+      }
+      try {
+        await addDoc(collection(db, "sessions", window.currentSessionId, "events"), {
+          eventType: "abandonedWords",
+          words: Array.isArray(unguessedWords) ? unguessedWords : [],
+          timestamp: new Date()
+        });
+        console.log('Abandoned words logged:', unguessedWords);
+      } catch (err) {
+        console.error('Error logging abandoned words:', err);
+      }
+    };
+
+    // (optional) expose a helper to close session with final scores
+    window.logSessionEnd = async function(finalScores = {}) {
       if (!window.currentSessionId) return;
       try {
-        const guessRef = doc(collection(db, "sessions", window.currentSessionId, "guesses"));
-        await setDoc(guessRef, { guess, success, timestamp: new Date() });
-      } catch(e) { console.error("Error logging guess:", e); }
-    }
+        await addDoc(collection(db, "sessions", window.currentSessionId, "events"), {
+          eventType: "session_end",
+          finalScores,
+          timestamp: new Date()
+        });
+        console.log('Session end logged');
+      } catch (err) { console.error('Error logging session end:', err); }
+    };
 
-    function guessWord() {
-      const guessInput = document.getElementById('guessInput');
-      const guess = guessInput.value.trim().toLowerCase();
-      if (!guess) return;
-
-      let found = false;
-      wordElements.forEach(item => {
-        if (!item.revealed && item.word.toLowerCase() === guess) {
-          item.element.textContent = item.word;
-          item.element.classList.add('revealed');
-          item.revealed = true;
-          revealedWords[guess] = true;
-          found = true;
-        }
-      });
-
-      if (found) players[currentTurn].score += 1;
-      else if (!failedGuesses.includes(guess)) { failedGuesses.push(guess); updateFailedBank(); }
-
-      logGuess(guess, found); // log each guess
-
-      nextTurn();
-      guessInput.value = '';
-      guessInput.focus();
-    }
-
-    function editOriginalText() { document.getElementById('setupFields').style.display = 'block'; }
-
-    function endGame() {
-      // Reveal all remaining words
-      wordElements.forEach(item => { if (!item.revealed) { item.element.textContent = item.word; item.element.classList.add('revealed'); } });
-      const unguessed = wordElements.filter(item => !revealedWords[item.word.toLowerCase()]).map(item => item.word);
-
-      // Log unguessed words
-      if (window.currentSessionId) {
-        const unguessedRef = doc(collection(db, "sessions", window.currentSessionId, "unguessed"));
-        setDoc(unguessedRef, { words: unguessed, timestamp: new Date() }).catch(e => console.error("Error logging unguessed words:", e));
-      }
-
-      document.getElementById('endGameBtn').style.display = 'none';
-    }
-
-    function startGame() {
-      const subject = document.getElementById('subject').value;
-      const cohort = document.getElementById('cohort').value;
-      if (!subject || !cohort) { alert("Please select both subject and cohort before generating text."); return; }
-
-      const numPlayers = parseInt(document.getElementById('numPlayers').value);
-      players = []; for (let i=1; i<=numPlayers; i++) players.push({ name:`Player ${i}`, score:0 });
-      gameSubject = subject; gameCohort = cohort; gameNumPlayers = numPlayers;
-      originalText = document.getElementById('inputText').value;
-      if (!originalText.trim()) { alert("Please input some text to generate."); return; }
-
-      if (window.startSession) startSession(subject, cohort, numPlayers);
-
-      document.getElementById('setupFields').style.display='none';
-      document.getElementById('editOriginalBtn').style.display='inline-block';
-      document.getElementById('endGameBtn').style.display='inline-block';
-      document.getElementById('gameSection').style.display='block';
-      document.getElementById('gameInfo').style.display='block';
-
-      updateGameInfo(); renderCloze(); updateScores();
-      document.getElementById('guessInput').value=''; document.getElementById('guessInput').focus();
-    }
-
-    // Event bindings
-    document.getElementById('generateBtn').addEventListener('click', startGame);
-    document.getElementById('guessBtn').addEventListener('click', guessWord);
-    document.getElementById('editOriginalBtn').addEventListener('click', editOriginalText);
-    document.getElementById('endGameBtn').addEventListener('click', endGame);
-    document.getElementById('inputText').addEventListener('input', () => { originalText=document.getElementById('inputText').value; renderCloze(); });
-
+    console.log('Firebase module loaded');
   </script>
 </body>
 </html>
+
 
