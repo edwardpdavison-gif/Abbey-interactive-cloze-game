@@ -99,6 +99,7 @@
       <div id="guessSection">
         <input type="text" id="guessInput" placeholder="Enter word">
         <button id="guessBtn">Guess Word</button>
+        <button id="endGameBtn" class="small-button" style="display:none;">End Game</button>
       </div>
       <div id="rightPanel">
         <div id="failedBankContainer">
@@ -212,6 +213,30 @@
       document.getElementById('setupFields').style.display = 'block';
     }
 
+    function endGame() {
+      const missedWords = [];
+      wordElements.forEach(item => {
+        if (!item.revealed) {
+          item.element.textContent = item.word;
+          item.element.classList.add('revealed');
+          missedWords.push(item.word);
+        }
+      });
+
+      if (window.endSession) {
+        const finalScores = players.map(p => ({ name: p.name, score: p.score }));
+        window.endSession(gameSubject, gameCohort, gameNumPlayers, finalScores, missedWords);
+      }
+
+      alert("Game over! Thanks for playing.");
+
+      document.getElementById('setupFields').style.display = 'block';
+      document.getElementById('gameSection').style.display = 'none';
+      document.getElementById('editOriginalBtn').style.display = 'none';
+      document.getElementById('gameInfo').style.display = 'none';
+      document.getElementById('endGameBtn').style.display = 'none';
+    }
+
     function startGame() {
       const subject = document.getElementById('subject').value;
       const cohort = document.getElementById('cohort').value;
@@ -244,6 +269,7 @@
       document.getElementById('editOriginalBtn').style.display = 'inline-block';
       document.getElementById('gameSection').style.display = 'block';
       document.getElementById('gameInfo').style.display = 'block';
+      document.getElementById('endGameBtn').style.display = 'inline-block';
 
       updateGameInfo();
       renderCloze();
@@ -257,6 +283,7 @@
     document.getElementById('generateBtn').addEventListener('click', startGame);
     document.getElementById('guessBtn').addEventListener('click', guessWord);
     document.getElementById('editOriginalBtn').addEventListener('click', editOriginalText);
+    document.getElementById('endGameBtn').addEventListener('click', endGame);
     document.getElementById('inputText').addEventListener('input', () => {
       originalText = document.getElementById('inputText').value;
       renderCloze();
@@ -296,7 +323,6 @@
       const sessionRef = doc(collection(db, "sessions"), sessionId);
       const { original, cloze } = captureTexts();
 
-      // ✅ Only log if text is actually generated
       if (!original || !cloze) {
         console.warn("Skipping session logging: no text has been generated yet.");
         return;
@@ -314,14 +340,14 @@
       try {
         await setDoc(sessionRef, { metadata });
         console.log("Session started:", sessionId, metadata);
-        window.currentSessionId = sessionId; // 🔹 store sessionId globally
+        window.currentSessionId = sessionId;
       } catch (error) {
         console.error("Error creating session:", error);
       }
     }
 
     async function logGuessEvent(subject, cohort, playerNum, guess, correct) {
-      if (!window.currentSessionId) return; // only log if session exists
+      if (!window.currentSessionId) return;
       const eventRef = doc(collection(db, "sessions", window.currentSessionId, "events"));
       const eventData = {
         timestamp: new Date(),
@@ -340,11 +366,29 @@
       }
     }
 
+    async function endSession(subject, cohort, numPlayers, finalScores, missedWords) {
+      if (!window.currentSessionId) return;
+      const sessionRef = doc(collection(db, "sessions"), window.currentSessionId);
+
+      try {
+        await setDoc(sessionRef, {
+          endTime: new Date(),
+          finalScores,
+          missedWords
+        }, { merge: true });
+        console.log("Session ended with scores and missed words:", finalScores, missedWords);
+      } catch (error) {
+        console.error("Error ending session:", error);
+      }
+    }
+
     window.startSession = startSession;
     window.logGuessEvent = logGuessEvent;
+    window.endSession = endSession;
   </script>
 </body>
 </html>
+
 
 
 
