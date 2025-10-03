@@ -138,7 +138,7 @@
         wordElements = [];
         const paragraphs = originalText.split(/\n/);
         paragraphs.forEach((para, pIndex) => {
-          const tokens = para.match(/\w+|[^\w\s]/g) || [];
+          const tokens = para.match(/\w+(?:'\w+)?|[^\w\s]/g) || [];
           tokens.forEach((token, i) => {
             if (/^\w+$/.test(token)) {
               const span = document.createElement('span');
@@ -304,6 +304,7 @@
   </script>
 </body>
 </html>
+
 
 
 
