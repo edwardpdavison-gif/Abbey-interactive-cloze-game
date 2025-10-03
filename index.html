@@ -138,7 +138,22 @@
         wordElements = [];
         const paragraphs = originalText.split(/\n/);
         paragraphs.forEach((para, pIndex) => {
-          const tokens = para.match(/\w+(?:'\w+)?|[^\w\s]/g) || [];
+         // normalize curly/typographic apostrophes to straight apostrophe
+const normalized = para.replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
+
+// Try a Unicode-aware regex (supports accented letters and other scripts).
+// If the browser doesn't support \p{L} (old browsers), fall back to an ASCII-friendly regex.
+let tokens = null;
+try {
+  // Matches words with internal apostrophes or hyphens (e.g. "wouldn't", "state-of-the-art"),
+  // numbers, or individual punctuation tokens.
+  tokens = normalized.match(/\p{L}+(?:['-]\p{L}+)*|\d+|[^\p{L}\p{N}\s]/gu);
+} catch (e) {
+  // Fallback for browsers without Unicode property escape support
+  tokens = normalized.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*|[^\w\s]/g);
+}
+tokens = tokens || [];
+
           tokens.forEach((token, i) => {
             if (/^\w+$/.test(token)) {
               const span = document.createElement('span');
@@ -304,6 +319,7 @@
   </script>
 </body>
 </html>
+
 
 
 
